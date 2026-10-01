@@ -4,9 +4,9 @@ Concurrent HTTP fetcher using `asyncio` + retries (stdlib only).
 
 ## Status
 
-Project scaffolding is in place. Fetcher CLI and retry logic will land in follow-up commits.
+CLI and concurrent single-attempt fetches are in place. Retry backoff and concurrency limits will land in follow-up commits.
 
-## Planned run
+## Run
 
 ```powershell
 python src\async_fetcher.py https://example.com https://httpbin.org/status/200 --json
