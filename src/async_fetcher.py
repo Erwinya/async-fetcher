@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Async HTTP fetch CLI (retries / concurrency land next)."""
+"""Async concurrent HTTP fetcher with retries (stdlib asyncio)."""
 from __future__ import annotations
 
 import argparse
@@ -29,53 +29,57 @@ def _fetch_once(url: str, timeout: float) -> tuple[int, bytes]:
         return resp.status, resp.read()
 
 
-async def fetch_url(url: str, timeout: float) -> FetchResult:
+async def fetch_url(url: str, timeout: float, retries: int, delay: float = 0.2) -> FetchResult:
+    attempts = 0
     started = time.perf_counter()
-    try:
-        status, body = await asyncio.to_thread(_fetch_once, url, timeout)
-        elapsed = (time.perf_counter() - started) * 1000.0
-        return FetchResult(
-            url=url,
-            ok=200 <= status < 400,
-            status=status,
-            elapsed_ms=round(elapsed, 2),
-            attempts=1,
-            bytes=len(body),
-        )
-    except urllib.error.HTTPError as ex:
-        elapsed = (time.perf_counter() - started) * 1000.0
-        return FetchResult(
-            url=url,
-            ok=False,
-            status=ex.code,
-            elapsed_ms=round(elapsed, 2),
-            attempts=1,
-            error=f"HTTP {ex.code}",
-        )
-    except Exception as ex:  # noqa: BLE001
-        elapsed = (time.perf_counter() - started) * 1000.0
-        return FetchResult(
-            url=url,
-            ok=False,
-            status=None,
-            elapsed_ms=round(elapsed, 2),
-            attempts=1,
-            error=str(ex),
-        )
+    last_error: str | None = None
+    last_status: int | None = None
+    for attempt in range(retries + 1):
+        attempts = attempt + 1
+        try:
+            status, body = await asyncio.to_thread(_fetch_once, url, timeout)
+            elapsed = (time.perf_counter() - started) * 1000.0
+            return FetchResult(
+                url=url,
+                ok=200 <= status < 400,
+                status=status,
+                elapsed_ms=round(elapsed, 2),
+                attempts=attempts,
+                bytes=len(body),
+            )
+        except urllib.error.HTTPError as ex:
+            last_error = f"HTTP {ex.code}"
+            last_status = ex.code
+            if 400 <= ex.code < 500:
+                break
+        except Exception as ex:  # noqa: BLE001
+            last_error = str(ex)
+        if attempt < retries:
+            await asyncio.sleep(delay * (attempt + 1))
+    elapsed = (time.perf_counter() - started) * 1000.0
+    return FetchResult(
+        url=url,
+        ok=False,
+        status=last_status,
+        elapsed_ms=round(elapsed, 2),
+        attempts=attempts,
+        error=last_error,
+    )
 
 
-async def run(urls: list[str], timeout: float) -> list[FetchResult]:
-    return list(await asyncio.gather(*(fetch_url(u, timeout) for u in urls)))
+async def run(urls: list[str], timeout: float, retries: int) -> list[FetchResult]:
+    return list(await asyncio.gather(*(fetch_url(u, timeout, retries) for u in urls)))
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Fetch URLs concurrently (stdlib asyncio)")
+    parser = argparse.ArgumentParser(description="Fetch URLs concurrently with retries")
     parser.add_argument("urls", nargs="+")
     parser.add_argument("--timeout", type=float, default=5.0)
+    parser.add_argument("--retries", type=int, default=2, help="Retries after the first attempt")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
-    results = asyncio.run(run(args.urls, args.timeout))
+    results = asyncio.run(run(args.urls, args.timeout, args.retries))
     if args.json:
         print(json.dumps({"results": [asdict(r) for r in results]}, indent=2))
     else:
