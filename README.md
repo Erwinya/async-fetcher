@@ -4,12 +4,12 @@ Concurrent HTTP fetcher using `asyncio` + retries (stdlib only).
 
 ## Status
 
-CLI, concurrent fetches, and retry backoff (`--retries`) are in place. Concurrency limits will land in a follow-up commit.
+CLI, concurrent fetches, retry backoff (`--retries`), and an in-flight concurrency limit (`--concurrency`) are in place.
 
 ## Run
 
 ```powershell
-python src\async_fetcher.py https://example.com https://httpbin.org/status/200 --retries 2 --json
+python src\async_fetcher.py https://example.com https://httpbin.org/status/200 --concurrency 2 --retries 2 --json
 ```
 
 ## Requirements

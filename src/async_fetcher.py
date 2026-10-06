@@ -29,11 +29,10 @@ def _fetch_once(url: str, timeout: float) -> tuple[int, bytes]:
         return resp.status, resp.read()
 
 
-async def fetch_url(url: str, timeout: float, retries: int, delay: float = 0.2) -> FetchResult:
+async def fetch_url(url: str, timeout: float, retries: int, delay: float) -> FetchResult:
     attempts = 0
     started = time.perf_counter()
     last_error: str | None = None
-    last_status: int | None = None
     for attempt in range(retries + 1):
         attempts = attempt + 1
         try:
@@ -49,7 +48,6 @@ async def fetch_url(url: str, timeout: float, retries: int, delay: float = 0.2) 
             )
         except urllib.error.HTTPError as ex:
             last_error = f"HTTP {ex.code}"
-            last_status = ex.code
             if 400 <= ex.code < 500:
                 break
         except Exception as ex:  # noqa: BLE001
@@ -60,26 +58,33 @@ async def fetch_url(url: str, timeout: float, retries: int, delay: float = 0.2) 
     return FetchResult(
         url=url,
         ok=False,
-        status=last_status,
+        status=None,
         elapsed_ms=round(elapsed, 2),
         attempts=attempts,
         error=last_error,
     )
 
 
-async def run(urls: list[str], timeout: float, retries: int) -> list[FetchResult]:
-    return list(await asyncio.gather(*(fetch_url(u, timeout, retries) for u in urls)))
+async def run(urls: list[str], timeout: float, retries: int, concurrency: int) -> list[FetchResult]:
+    sem = asyncio.Semaphore(concurrency)
+
+    async def wrapped(url: str) -> FetchResult:
+        async with sem:
+            return await fetch_url(url, timeout, retries, delay=0.2)
+
+    return list(await asyncio.gather(*(wrapped(u) for u in urls)))
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Fetch URLs concurrently with retries")
+    parser = argparse.ArgumentParser(description="Fetch many URLs concurrently with retries")
     parser.add_argument("urls", nargs="+")
     parser.add_argument("--timeout", type=float, default=5.0)
-    parser.add_argument("--retries", type=int, default=2, help="Retries after the first attempt")
+    parser.add_argument("--retries", type=int, default=2)
+    parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
-    results = asyncio.run(run(args.urls, args.timeout, args.retries))
+    results = asyncio.run(run(args.urls, args.timeout, args.retries, args.concurrency))
     if args.json:
         print(json.dumps({"results": [asdict(r) for r in results]}, indent=2))
     else:
