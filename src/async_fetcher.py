@@ -96,5 +96,9 @@ def main(argv: list[str] | None = None) -> int:
     return 0 if all(r.ok for r in results) else 1
 
 
-if __name__ == "__main__":
+def cli() -> None:
     raise SystemExit(main())
+
+
+if __name__ == "__main__":
+    cli()

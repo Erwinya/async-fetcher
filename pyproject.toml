@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "async-fetcher"
+version = "0.1.0"
+description = "Concurrent HTTP fetcher with asyncio retries (stdlib only)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+async-fetcher = "async_fetcher:cli"
+
+[tool.setuptools]
+py-modules = ["async_fetcher"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
