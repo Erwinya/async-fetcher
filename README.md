@@ -4,7 +4,7 @@ Concurrent HTTP fetcher using `asyncio` + retries (stdlib only).
 
 ## Status
 
-CLI, retries, concurrency limits, packaging, and unit tests are in place. CI will land in a follow-up commit.
+Complete: CLI, retries, concurrency limits, packaging, unit tests, and CI.
 
 ## Run
 
