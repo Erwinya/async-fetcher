@@ -1,4 +1,4 @@
-﻿# async-fetcher
+# async-fetcher
 
 Concurrent HTTP fetcher using `asyncio` + retries (stdlib only).
 
@@ -18,6 +18,16 @@ Install locally (optional):
 pip install -e .
 async-fetcher https://example.com --json
 ```
+
+
+## Options
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--timeout` | `5.0` | Per-request timeout in seconds |
+| `--retries` | `2` | Extra attempts after a failed request |
+| `--concurrency` | `8` | Max in-flight fetches |
+| `--json` | off | Emit JSON results instead of plain text |
 
 ## Development
 
