@@ -1,5 +1,7 @@
 import asyncio
 import unittest
+import urllib.error
+from io import BytesIO
 from unittest.mock import patch
 
 import async_fetcher
@@ -43,6 +45,43 @@ class FetchTests(unittest.TestCase):
             results = asyncio.run(async_fetcher.run(["https://a.test", "https://b.test"], 5.0, 0, 2))
         self.assertEqual(len(results), 2)
         self.assertTrue(all(r.ok for r in results))
+
+    def test_validate_options_rejects_bad_values(self) -> None:
+        with self.assertRaises(ValueError):
+            async_fetcher.validate_options(0, 1, 1)
+        with self.assertRaises(ValueError):
+            async_fetcher.validate_options(1, -1, 1)
+        with self.assertRaises(ValueError):
+            async_fetcher.validate_options(1, 0, 0)
+
+    def test_cli_rejects_invalid_timeout(self) -> None:
+        with self.assertRaises(SystemExit) as ctx:
+            async_fetcher.main(["https://example.com", "--timeout", "0"])
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_http_error_preserves_status_and_skips_4xx_retry(self) -> None:
+        err = urllib.error.HTTPError(
+            "https://x.test", 404, "Not Found", hdrs={}, fp=BytesIO(b"missing")
+        )
+        with patch.object(async_fetcher, "_fetch_once", side_effect=err):
+            result = asyncio.run(async_fetcher.fetch_url("https://x.test", 1.0, retries=3, delay=0.0))
+        self.assertFalse(result.ok)
+        self.assertEqual(result.status, 404)
+        self.assertEqual(result.attempts, 1)
+        self.assertEqual(result.error, "HTTP 404")
+
+    def test_http_5xx_retries_and_keeps_status(self) -> None:
+        def raise_503(*_args, **_kwargs):
+            raise urllib.error.HTTPError(
+                "https://x.test", 503, "Unavailable", hdrs={}, fp=BytesIO(b"down")
+            )
+
+        with patch.object(async_fetcher, "_fetch_once", side_effect=raise_503):
+            result = asyncio.run(async_fetcher.fetch_url("https://x.test", 1.0, retries=2, delay=0.0))
+        self.assertFalse(result.ok)
+        self.assertEqual(result.status, 503)
+        self.assertEqual(result.attempts, 3)
+        self.assertEqual(result.error, "HTTP 503")
 
 
 if __name__ == "__main__":
