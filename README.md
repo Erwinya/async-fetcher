@@ -19,15 +19,22 @@ pip install -e .
 async-fetcher https://example.com --json
 ```
 
-
 ## Options
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `--timeout` | `5.0` | Per-request timeout in seconds |
-| `--retries` | `2` | Extra attempts after a failed request |
-| `--concurrency` | `8` | Max in-flight fetches |
+| `--timeout` | `5.0` | Per-request timeout in seconds (must be > 0) |
+| `--retries` | `2` | Extra attempts after a failed request (must be >= 0) |
+| `--concurrency` | `8` | Max in-flight fetches (must be > 0) |
 | `--json` | off | Emit JSON results instead of plain text |
+
+Invalid option values exit with code `2`. If any URL fails, the process exits with code `1`.
+
+## Error behavior
+
+- HTTP 4xx responses keep their status code and are not retried.
+- HTTP 5xx responses keep their status code and are retried up to `--retries`.
+- Network and timeout errors are retried with linear backoff (`delay * attempt`).
 
 ## Development
 
@@ -35,6 +42,8 @@ async-fetcher https://example.com --json
 pip install -e ".[dev]"
 pytest
 ```
+
+CI runs pytest and `compileall` on Python 3.10–3.13 without live network requests.
 
 ## Requirements
 
