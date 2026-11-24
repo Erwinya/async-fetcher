@@ -1,6 +1,9 @@
 import asyncio
+import io
+import json
 import unittest
 import urllib.error
+from contextlib import redirect_stdout
 from io import BytesIO
 from unittest.mock import patch
 
@@ -82,6 +85,84 @@ class FetchTests(unittest.TestCase):
         self.assertEqual(result.status, 503)
         self.assertEqual(result.attempts, 3)
         self.assertEqual(result.error, "HTTP 503")
+
+    def test_retry_backoff_sleeps_between_attempts(self) -> None:
+        sleeps: list[float] = []
+
+        async def fake_sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+
+        with patch.object(async_fetcher, "_fetch_once", side_effect=TimeoutError("boom")):
+            with patch.object(async_fetcher.asyncio, "sleep", side_effect=fake_sleep):
+                result = asyncio.run(
+                    async_fetcher.fetch_url("https://x.test", 1.0, retries=2, delay=0.5)
+                )
+        self.assertFalse(result.ok)
+        self.assertEqual(result.attempts, 3)
+        self.assertEqual(sleeps, [0.5, 1.0])
+
+    def test_concurrency_limits_inflight_fetches(self) -> None:
+        inflight = 0
+        peak = 0
+
+        async def fake_fetch(url: str, timeout: float, retries: int, delay: float = 0.2):
+            nonlocal inflight, peak
+            inflight += 1
+            peak = max(peak, inflight)
+            await asyncio.sleep(0.01)
+            inflight -= 1
+            return async_fetcher.FetchResult(
+                url=url,
+                ok=True,
+                status=200,
+                elapsed_ms=1.0,
+                attempts=1,
+                bytes=1,
+            )
+
+        urls = [f"https://u{i}.test" for i in range(6)]
+        with patch.object(async_fetcher, "fetch_url", side_effect=fake_fetch):
+            results = asyncio.run(async_fetcher.run(urls, 5.0, 0, 2))
+        self.assertEqual(len(results), 6)
+        self.assertLessEqual(peak, 2)
+
+    def test_cli_json_output_and_exit_codes(self) -> None:
+        ok = async_fetcher.FetchResult(
+            url="https://ok.test",
+            ok=True,
+            status=200,
+            elapsed_ms=1.0,
+            attempts=1,
+            bytes=2,
+        )
+        bad = async_fetcher.FetchResult(
+            url="https://bad.test",
+            ok=False,
+            status=500,
+            elapsed_ms=2.0,
+            attempts=2,
+            error="HTTP 500",
+        )
+
+        async def fake_run(urls, timeout, retries, concurrency):
+            return [ok if "ok" in u else bad for u in urls]
+
+        buf = io.StringIO()
+        with patch.object(async_fetcher, "run", side_effect=fake_run):
+            with redirect_stdout(buf):
+                code = async_fetcher.main(["https://ok.test", "https://bad.test", "--json"])
+        payload = json.loads(buf.getvalue())
+        self.assertEqual(code, 1)
+        self.assertEqual(len(payload["results"]), 2)
+        self.assertTrue(payload["results"][0]["ok"])
+        self.assertFalse(payload["results"][1]["ok"])
+
+        buf2 = io.StringIO()
+        with patch.object(async_fetcher, "run", side_effect=fake_run):
+            with redirect_stdout(buf2):
+                code_ok = async_fetcher.main(["https://ok.test", "--json"])
+        self.assertEqual(code_ok, 0)
+        self.assertTrue(json.loads(buf2.getvalue())["results"][0]["ok"])
 
 
 if __name__ == "__main__":
